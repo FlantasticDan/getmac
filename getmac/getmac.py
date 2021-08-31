@@ -404,6 +404,17 @@ def _arping_iputils(host):
         _popen("arping", "-f -c 1 %s" % host),
     )
 
+def _try_mac_via_iface_from_ip(host):
+    # type: (str) -> Optional[str]
+    """Use an IP4 to get an interface and attempt to get the MAC address from that interface"""
+    interface = _popen("ip", "-br address") \
+    .partition(host)[0] \
+    .split('\n')[-1] \
+    .split(' ')[0] \
+    .strip()
+    if interface:
+        return get_mac_address(interface=interface)
+
 
 def _read_file(filepath):
     # type: (str) -> Optional[str]
@@ -541,6 +552,7 @@ def _hunt_for_mac(to_find, type_of_thing, net_ok=True):
                 [to_find, "-a", "-a %s" % to_find],
             ),
             _uuid_ip,
+            _try_mac_via_iface_from_ip,
         ]
         # Add methods that make network requests
         if net_ok and type_of_thing != IP6:
