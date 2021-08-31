@@ -126,3 +126,9 @@ def test_fetch_ip_using_dns(mocker):
     m = mocker.patch("socket.socket")
     m.return_value.getsockname.return_value = ("1.2.3.4", 51327)
     assert getmac._fetch_ip_using_dns() == "1.2.3.4"
+
+def test_try_mac_via_iface_from_ip(mocker, get_sample):
+    data = get_sample("ubuntu_20.04/ip_-br_address.out")
+    mocker.patch("getmac.getmac._popen", return_value=data)
+    assert getmac._try_mac_via_iface_from_ip("192.168.0.176") == "dc:a6:32:1f:f9:80"
+    assert getmac._try_mac_via_iface_from_ip("192.168.0.177") == None
