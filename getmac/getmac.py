@@ -32,6 +32,7 @@ import socket
 import struct
 import sys
 import traceback
+import warnings
 from subprocess import check_output
 
 try:  # Python 3
@@ -43,7 +44,7 @@ except ImportError:  # Python 2
 log = logging.getLogger("getmac")
 log.addHandler(logging.NullHandler())
 
-__version__ = "0.8.2"
+__version__ = "0.8.3"
 PY2 = sys.version_info[0] == 2
 
 # Configurable settings
@@ -103,8 +104,8 @@ try:
 except ImportError:
     pass
 
-# Ensure we only log the Python 2 warning once
-WARNED_PY2 = False
+# Ensure we only log the Python compatibility warning once
+WARNED_UNSUPPORTED_PYTHONS = False
 
 
 def get_mac_address(
@@ -135,14 +136,18 @@ def get_mac_address(
         Lowercase colon-separated MAC address, or None if one could not be
         found or there was an error.
     """
-    if PY2:
-        global WARNED_PY2
-        if not WARNED_PY2:
-            log.warning(
-                "Python 2 compatibility will be dropped in getmac 1.0.0. If you are "
-                'stuck on Python 2, consider loosely pinning the version e.g. "getmac<1".'
+    if PY2 or (sys.version_info[0] == 3 and sys.version_info[1] < 6):
+        global WARNED_UNSUPPORTED_PYTHONS
+        if not WARNED_UNSUPPORTED_PYTHONS:
+            warning_string = (
+                "Support for Python versions < 3.6 is deprecated and will be "
+                "removed in getmac 1.0.0. If you are stuck on an unsupported "
+                "Python, considor loosely pinning the version of this package "
+                'in your dependency list, e.g. "getmac<1".'
             )
-            WARNED_PY2 = True
+            warnings.warn(warning_string, DeprecationWarning)
+            log.warning(warning_string)  # Ensure it appears in any logs
+            WARNED_UNSUPPORTED_PYTHONS = True
 
     if (hostname and hostname == "localhost") or (ip and ip == "127.0.0.1"):
         return "00:00:00:00:00:00"
@@ -395,7 +400,7 @@ def _arping_habets(host):
     """Parse https://github.com/ThomasHabets/arping output."""
     return _search(
         r"^%s$" % MAC_RE_COLON,
-        _popen("arping", "-r -C 1 -c 1 %s" % host),
+        _popen("arping", "-r -C 1 -c 1 %s" % host).strip(),
     )
 
 
@@ -404,7 +409,7 @@ def _arping_iputils(host):
     """Parse iputils arping output."""
     return _search(
         r" from %s \[(%s)\]" % (re.escape(host), MAC_RE_COLON),
-        _popen("arping", "-f -c 1 %s" % host),
+        _popen("arping", "-f -c 1 %s" % host).strip(),
     )
 
 def _try_mac_via_iface_from_ip(host):
@@ -516,13 +521,17 @@ def _hunt_for_mac(to_find, type_of_thing, net_ok=True):
             (r"ether " + MAC_RE_COLON, 0, "ifconfig", [to_find]),
             # Fast ifconfig
             (r"HWaddr " + MAC_RE_COLON, 0, "ifconfig", [to_find]),
+            # Android 6.0.1
+            (r"state UP.*\n.*ether " + MAC_RE_COLON, 0, "ip", ["link", "addr"]),
+            (r"wlan.*\n.*ether " + MAC_RE_COLON, 0, "ip", ["link", "addr"]),
+            (r"ether " + MAC_RE_COLON, 0, "ip", ["link", "addr"]),
             # ip link (Don't use 'list' due to SELinux [Android 24+])
-            (
-                to_find + r".*\n.*link/ether " + MAC_RE_COLON,
-                0,
-                "ip",
-                ["link %s" % to_find, "link"],
-            ),
+            # (
+            #    to_find + r".*\n.*link/ether " + MAC_RE_COLON,
+            #    0,
+            #    "ip",
+            #    ["link %s" % to_find, "link"],
+            # ),
             # netstat
             (to_find + r".*HWaddr " + MAC_RE_COLON, 0, "netstat", ["-iae"]),
             # More variations of ifconfig
@@ -657,7 +666,7 @@ def _get_default_iface_openbsd():
 
 def _get_default_iface_freebsd():
     # type: () -> Optional[str]
-    methods = [(r"default[ ]+\S+[ ]+\S+[ ]+(\S+)\n", 0, "netstat", ["-r"])]
+    methods = [(r"default[ ]+\S+[ ]+\S+[ ]+(\S+)[\r\n]+", 0, "netstat", ["-r"])]
     return _try_methods(methods)
 
 
